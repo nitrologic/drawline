@@ -4,6 +4,8 @@
 #Import "<mojo>"
 #Import "<drawline>"
 
+#Import "assets/vectorfont.json"
+
 Using std..
 Using mojo..
 
@@ -318,6 +320,9 @@ Class OrbitWindow Extends Window
 End
 
 Function Main()
+	
+	Local js:=LoadString("asset::vectorfont.json")
+	Print js
 	
 '	mojolabs.EnableHighDPI()
 
