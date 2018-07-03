@@ -1,0 +1,8 @@
+{
+	"module":"drawline",
+	"about":"Smooth sub pixel line drawing",
+	"author":"Simon Armstrong",
+	"version":"1.0.0",
+	"support":"https://github.com/nitrologic/drawline",
+	"depends":["mojo"]
+}
