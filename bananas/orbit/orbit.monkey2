@@ -20,7 +20,7 @@ Alias Micros:Long
 Alias Gram:Double
 
 ' v = (4.pi.r.r.r)/3
-' r = (3.v)/(4.pi)^-3
+' r = ((3.v)/(4.pi))^0.33
 
 Class Mass
 	Field grams:Gram
