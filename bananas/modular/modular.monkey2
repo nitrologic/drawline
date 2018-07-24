@@ -230,7 +230,7 @@ Class ModularWindow Extends Window
 	Function Reset()
 		libc.rename(PrefsPath,PrefsPath+".old")
 		libc.remove(PrefsPath)
-		App.Terminate()
+'		App.Terminate()
 	End
 
 	Method Save()
@@ -496,8 +496,8 @@ Function Main()
 		prefs.FromJson(filePrefs)		
 		If prefs.Invalid()
 			ModularWindow.Reset()
-			Print "Invalid Prefs - invoked Factory Reset"
-			Return
+			Print "Invalid Prefs - invoking Factory Reset"
+			prefs=New Prefs()			
 		Endif
 	Endif
 	

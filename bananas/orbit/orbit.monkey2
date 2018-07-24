@@ -1,7 +1,13 @@
-' simple mojo game by nitrologic
+' monkey2 grid sim
+
+' key1 - binary stars
+' key2 - solar system
+' key3 - ship tests
 
 #Import "<std>"
 #Import "<mojo>"
+#Import "<mojolabs>"
+
 #Import "<drawline>"
 
 #Import "assets/vectorfont.json"
@@ -9,110 +15,199 @@
 Using std..
 Using mojo..
 
-Const MinZoom:Double=0.5
-Const MinWidth:=32
-Const MinHeight:=24
-Const DefaultWindowFlags:WindowFlags=WindowFlags.HighDPI|WindowFlags.Resizable
+Alias Micros:Long
 
-Alias JsonFields:StringMap<JsonValue>
+Alias Gram:Double
 
-Struct Prefs
-	Field top:Int=35
-	Field bottom:int=120
-	Field left:int=250
-	Field right:Int=250
-	Field menuwidth:Int=200
-	Field toolswidth:Int=480
-	Field scale:Double=1.0
-	Field frame:Recti=New Recti(100,100,1720,1280)
-	Field fullscreen:Bool
+' v = (4.pi.r.r.r)/3
+' r = (3.v)/(4.pi)^-3
+
+Class Mass
+	Field grams:Gram
+	Field position:XY
+	Field velocity:XY	
+	Field radius:Double
 	
-	Method Invalid:Bool()
-		Return frame.Width < MinWidth Or frame.Height<MinHeight
+	Method New(mass:Gram,pos:XY,vel:XY)
+		grams=mass
+		position=pos
+		velocity=vel
+		radius=Pow((3*mass)/(4*Pi),1.0/3)
+		Print "radius="+radius
 	End
 
-	Function JsonRect:JsonObject(rect:Recti)
-		Local json:=New JsonObject()
-		json["top"]=New JsonNumber(rect.Top)
-		json["bottom"]=New JsonNumber(rect.Bottom)
-		json["left"]=New JsonNumber(rect.Left)
-		json["right"]=New JsonNumber(rect.Right)
-		Return json
+	Method Move()
+		position+=velocity		
 	End
 	
-	Function RectJson:Recti(obj:JsonFields)
-		Local x0:=obj["left"].ToNumber()
-		Local y0:=obj["top"].ToNumber()
-		Local x1:=obj["right"].ToNumber()
-		Local y1:=obj["bottom"].ToNumber()		
-		Return New Recti(x0,y0,x1,y1)
-	End
-
-	Method ToJson:JsonObject()		
-		Local json:=New JsonObject()
-		json["top"]=New JsonNumber(top)
-		json["bottom"]=New JsonNumber(bottom)
-		json["left"]=New JsonNumber(left)
-		json["right"]=New JsonNumber(right)
-		json["menuwidth"]=New JsonNumber(menuwidth)
-		json["toolswidth"]=New JsonNumber(toolswidth)
-		json["scale"]=New JsonNumber(scale)
-		json["frame"]=JsonRect(frame)		
-		json["fullscreen"]=New JsonBool(fullscreen)
-		Return json
+	Function Attract(m0:Mass,m1:Mass)
+		Local distance:=m0.position.Distance(m1.position)
+		Local f:=(m1.position-m0.position)/(distance*distance*distance)
+		m0.velocity+=f*m1.grams*G
+		m1.velocity-=f*m0.grams*G
 	End
 	
-	Method FromJson:Prefs(json:JsonObject)
-		top=json["top"].ToNumber()
-		bottom=json["bottom"].ToNumber()
-		left=json["left"].ToNumber()
-		right=json["right"].ToNumber()
-		menuwidth=json["menuwidth"].ToNumber()
-		toolswidth=json["toolswidth"].ToNumber()
-		scale=json["scale"].ToNumber()
-		If json.Contains("fullscreen")
-			fullscreen=json["fullscreen"].ToBool()
-		Endif
-		If json.Contains("frame")
-			frame=RectJson(json["frame"].ToObject())
-		Endif
-		Return Self
+	Method Draw(context:SmoothContext) Virtual
+		context.Plot(position,20*radius)
+	End
+End
+
+Alias Radians:Double
+
+Class Ship Extends Mass	
+	Field rotation:Radians
+
+	Method New(mass:Gram,pos:XY,vel:XY)
+		Super.New(mass,pos,vel)
+	End
+
+	Method Draw(context:SmoothContext) Override
+		context.Plot(position,200*radius)
+	End
+	
+	Method Turn(angle:Radians)
+		rotation+=angle
+	End
+End
+
+Class Player
+End
+
+
+Alias MassList:Stack<Mass>
+
+Const G:Double=1.2
+
+Class Universe
+	Field bodies:=New MassList
+	
+	Method New()
+	End
+	
+	Method AddBody(mass:Gram,position:XY,velocity:XY)
+		bodies.Add(New Mass(mass,position,velocity))
+	End
+	
+	Method AddBody(body:Mass)
+		bodies.Add(body)
+	End
+
+	Method Update()		
+
+		Local mass:=bodies.ToArray()
+		Local n:=mass.Length
+		Local gravity:=New XY		
+		
+		For Local i:=0 Until n
+			Local m0:=mass[i]
+			For Local j:=i+1 Until n
+				Local m1:=mass[j]
+				Mass.Attract(m0,m1)
+			Next
+		Next
+
+		For Local mass:=Eachin bodies
+			mass.Move()
+		Next
 	End
 
 End
 
-Global prefs:=New Prefs()
-Global PrefsPath:=(AppPath()+".prefs")
+Class GridGame
+	
+	Field world:=New Universe
+	Field ship:Ship
+	Field player:Player
+	
+	Method SetSim(index:Int)
+		Clear()
+		Select index 
+			Case 0
+				BinarySystem()
+			Case 1
+				SolarSystem()
+			Case 2
+				ship=New Ship(.05,New XY(90,400),New XY(0,0))
+				world.AddBody(ship)
+		End
+	End
+		
+	Method Clear()
+		world=New Universe
+	End
+	
+	Method BinarySystem()
+		world.AddBody(800,New XY(110,200),New XY(0,1))
+		world.AddBody(800,New XY(410,200),New XY(0,-1))		
+	End
+	
+	Method SolarSystem()
+		world.AddBody(800,New XY(410,200),New XY(0,0))
+		world.AddBody(1,New XY(110,200),New XY(0,1))
+		world.AddBody(.1,New XY(90,200),New XY(0,1.12))
+	End		
+	
+	Method Begin(grid:GameGrid,index:Int)
+		SetSim(index)
+	End
+	
+	Method Update()
+		world.Update()
+	End
+	
+	Method Draw(context:SmoothContext)
+		For Local mass:=Eachin world.bodies
+			mass.Draw(context)		
+		Next
 
-Class OrbitGrid
+	End
+End
+
+Alias GridGames:Stack<GridGame>
+
+Class GameGrid
+
+	Field bg:=Color.FromARGB($ff111111)
+	Field fg:=Color.FromARGB($ff000022)
 	
-	Field bg:=Color.Silver
-	Field fg:=Color.Grey
-	
-	Field shape:=New Shape
-	Field context:=New Context
+'	Field shape:=New Shape
+	Field context:=New SmoothContext
 	
 	Field org:XY
 	Field vel:XY
 
 	Field grid:=32
 	Field zoom:=2.5
+	Field zoomSpeed:=0.0
+	Field zoomPos:XY
 
 	Field owner:View
 	
+	Field vectorFont:=New VectorFont
+	
 	Method New(view:View)		
 		owner=view
-		shape.Plot(New XY(0,0),10)
+		vectorFont=LoadFont("asset::vectorfont.json")
+	End
+	
+	Method ZoomPos(v:Double, pos:XY)
+		zoomSpeed=v
+		zoomPos=pos
 	End
 	
 	Method Update()
 		org+=vel
-		vel*=0.972
+		vel*=0.972		
+		Local z0:=zoomPos/zoom
+		zoom+=zoomSpeed
+'		Local z1:=zoomPos/zoom
+'		org-=(z1-z0)
+		zoomSpeed*=0.88		
 	End
 			
-	Method Render(canvas:Canvas)
+	Method Render(canvas:Canvas,games:GridGames)
 		
-		context.BeginPaint(canvas)
+		context.BeginPaint(canvas,vectorFont)
 		
 		Local w:=canvas.Viewport.Width
 		Local h:=canvas.Viewport.Height		
@@ -148,26 +243,66 @@ Class OrbitGrid
 			context.VLin(rect)
 			ix+=1
 		Next
+
+		canvas.Color=Color.White
 		
 		context.Origin(org)
-		context.Zoom(zoom)
-		
-		context.Plot(New XY(50,50),20)		
-
-		context.Line(New XY(150,150),New XY(250,200),10)
-
+		context.Zoom(zoom)	
+'		context.Plot(New XY(50,50),20)		
+'		context.Line(New XY(150,150),New XY(250,200),10)
+		context.Foreground(Color.Orange)
+		context.Text(New XY(50,180),2,"Orbit Version 0.001")
 ' for each layer
-
-		context.Draw(shape)
-		context.EndPaint()
-
-	End
-	
+'		context.Draw(shape)
+		For Local game:=Eachin games
+			game.Draw(context)
+		Next
+		context.EndPaint()		
+	End	
 End
+
+Class Shape Extends IntList
+	Method AddLine(x0:Int,y0:Int,x1:Int,y1:Int)
+		Add(x0)
+		Add(y0)
+		Add(x1)
+		Add(y1)
+	End
+End
+
+Function LoadFont:VectorFont(path:String)
+	Local result:=New VectorFont
+	Local json:=JsonObject.Load(path)
+	Local vectors:=json.GetValue("vectorfont")		
+	Local glyphs:=vectors.ToArray()		
+	For Local i:=0 Until glyphs.Length
+		Local value:=glyphs[i].ToObject()			
+		Local charcode:=value["charcode"]
+		Local code:Int=charcode.ToNumber()
+		If Not code code=charcode.ToString()[0]
+		Local drawlist:=value["drawlist"].ToArray()
+		Local n:=drawlist[0].ToNumber()
+		Local shape:=New Shape
+		For Local j:=0 Until n
+			Local x0:=drawlist[1+j*4].ToNumber()
+			Local y0:=drawlist[2+j*4].ToNumber()
+			Local x1:=drawlist[3+j*4].ToNumber()
+			Local y1:=drawlist[4+j*4].ToNumber()
+			shape.AddLine(x0,y0,x1,y1)
+		Next
+		Local data:=shape.ToArray()
+		result[code]=data
+'		Print "code="+code+" data="+data.Length
+'		If drawlist Print drawlist.Length Else Print glyphs[i].ToJson()
+	Next
+	Return result
+End
+
 
 Class OrbitWindow Extends Window
 
-	Field grid:OrbitGrid
+	Field grid:GameGrid
+	Field games:GridGames
 	Field scale:Double
 	Field frame:Recti
 
@@ -175,53 +310,89 @@ Class OrbitWindow Extends Window
 		Super.New("Orbit",prefs.frame,DefaultWindowFlags)		
 		Fullscreen=prefs.fullscreen 
 		SetZoom(prefs.scale)		
-		grid=New OrbitGrid(Self)
+		grid=New GameGrid(Self)
+		SetWorld(2)
+	End
+	
+	Method SetWorld(index:Int)
+		games=New GridGames()
+		Local game:=New GridGame()
+		game.Begin(grid,index)
+		games.Add(game)		
 	End
 
 	Method OnKeyEvent( event:KeyEvent ) Override
 		Local mask:=event.Modifiers
-		If mask&Modifier.Control And event.Type=EventType.KeyDown
-'			Select event.Key
-'			End
+		If event.Type=EventType.KeyDown
+			If mask&Modifier.Control 
+'				Select event.Key
+'				End
+			Else
+				Select event.Key
+					Case Key.F11
+						ToggleFullscreen()
+					Case Key.Escape
+						Close()
+					Case Key.Key1
+						SetWorld(0)
+					Case Key.Key2
+						SetWorld(1)
+					Case Key.Key3
+						SetWorld(2)
+				End
+			Endif
 		Endif			
 		Super.OnKeyEvent(event)
 	End
 
 	Field mouseXY:Vec2i
+	Field mouseTime:Micros
 	
 	Method OnMouseEvent( event:MouseEvent ) Override	
+		Local t0:=mouseTime
+		Local t1:=Microsecs()
+		mouseTime=t1
+		Local delta:=t1-t0
+		
 		Local xy:=event.Location
 		If event.Type=EventType.MouseWheel
-			grid.zoom+=event.Wheel.y/16.0
+			grid.ZoomPos(event.Wheel.y/20.0,xy)
 			Return
 		Endif
 
 		If event.Type=EventType.MouseDown
-			grid.vel*=0
-			mouseXY=xy
+			If event.Button=MouseButton.Right
+				grid.vel=Null
+				mouseXY=xy
+			Endif
 		Endif
 
 		If event.Type=EventType.MouseUp
+'			If delta>500 grid.vel=Null
 		Endif
 
-		If event.Type=EventType.MouseMove And event.Button
-			Local delta:=xy-mouseXY			
+		If event.Type=EventType.MouseMove And event.Button=MouseButton.Right
+			Local delta:=mouseXY-xy			
+			grid.vel=delta*0.2
 '			grid.vel=grid.vel*0.5+delta
-			grid.vel=grid.vel*0.05+delta
+'			grid.vel=grid.vel*0.05+delta
 		Endif		
-		mouseXY=xy
+'		mouseXY=xy
 	End
 
 	Method OnRender(canvas:Canvas) Override				
+		For Local game:=Eachin games
+			game.Update()
+		Next
 		grid.Update()		
-		grid.Render(canvas)
+		grid.Render(canvas,games)
 		RequestRender()
 	End
 
-	Function Reset(terminate:Bool)
+	Function Reset()
 		libc.rename(PrefsPath,PrefsPath+".old")
 		libc.remove(PrefsPath)
-		If terminate App.Terminate()
+'		If terminate App.Terminate()
 	End
 
 	Method Save()
@@ -249,7 +420,7 @@ Class OrbitWindow Extends Window
 				Endif
 			Case EventType.WindowResized
 				If Not Fullscreen And Not Maximized And Not Minimized 
-					Print "Size"
+'					Print "Size"
 					frame=Frame				
 					SetZoom(scale)					
 				Endif
@@ -319,22 +490,88 @@ Class OrbitWindow Extends Window
 	
 End
 
+Const MinZoom:Double=0.5
+Const MinWidth:=32
+Const MinHeight:=24
+Const DefaultWindowFlags:WindowFlags=WindowFlags.HighDPI|WindowFlags.Resizable
+
+Alias JsonFields:StringMap<JsonValue>
+
+Struct Prefs
+	Field top:Int=35
+	Field bottom:int=120
+	Field left:int=250
+	Field right:Int=250
+	Field scale:Double=1.0
+	Field frame:Recti=New Recti(100,100,1720,1280)
+	Field fullscreen:Bool
+	
+	Method Invalid:Bool()
+		Return frame.Width < MinWidth Or frame.Height<MinHeight
+	End
+
+	Function JsonRect:JsonObject(rect:Recti)
+		Local json:=New JsonObject()
+		json["top"]=New JsonNumber(rect.Top)
+		json["bottom"]=New JsonNumber(rect.Bottom)
+		json["left"]=New JsonNumber(rect.Left)
+		json["right"]=New JsonNumber(rect.Right)
+		Return json
+	End
+	
+	Function RectJson:Recti(obj:JsonFields)
+		Local x0:=obj["left"].ToNumber()
+		Local y0:=obj["top"].ToNumber()
+		Local x1:=obj["right"].ToNumber()
+		Local y1:=obj["bottom"].ToNumber()		
+		Return New Recti(x0,y0,x1,y1)
+	End
+
+	Method ToJson:JsonObject()		
+		Local json:=New JsonObject()
+		json["top"]=New JsonNumber(top)
+		json["bottom"]=New JsonNumber(bottom)
+		json["left"]=New JsonNumber(left)
+		json["right"]=New JsonNumber(right)
+		json["scale"]=New JsonNumber(scale)
+		json["frame"]=JsonRect(frame)		
+		json["fullscreen"]=New JsonBool(fullscreen)
+		Return json
+	End
+	
+	Method FromJson:Prefs(json:JsonObject)
+		top=json["top"].ToNumber()
+		bottom=json["bottom"].ToNumber()
+		left=json["left"].ToNumber()
+		right=json["right"].ToNumber()
+		scale=json["scale"].ToNumber()
+		If json.Contains("fullscreen")
+			fullscreen=json["fullscreen"].ToBool()
+		Endif
+		If json.Contains("frame")
+			frame=RectJson(json["frame"].ToObject())
+		Endif
+		Return Self
+	End
+
+End
+
+Global prefs:=New Prefs()
+Global PrefsPath:=(AppPath()+".prefs")
+
 Function Main()
 	
-	Local js:=LoadString("asset::vectorfont.json")
-	Print js
+	mojolabs.EnableHighDPI()
 	
-'	mojolabs.EnableHighDPI()
-
 	New AppInstance
 
 	Local filePrefs:=JsonObject.Load(PrefsPath)
 	If filePrefs 
-		prefs.FromJson(filePrefs)		
+'		prefs.FromJson(filePrefs)		
 		If prefs.Invalid()
 			Print "Invalid Prefs - invoking Factory Reset"
-			OrbitWindow.Reset(True)
-			Return
+			OrbitWindow.Reset()
+			prefs=New Prefs()
 		Endif
 	Endif
 	
