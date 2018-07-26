@@ -19,6 +19,8 @@ Alias Micros:Long
 
 Alias Gram:Double
 
+Global Title:="GameGrid"
+
 ' v = (4.pi.r.r.r)/3
 ' r = ((3.v)/(4.pi))^0.33
 
@@ -62,6 +64,9 @@ Class Ship Extends Mass
 	End
 
 	Method Draw(context:SmoothContext) Override
+		Local nose:=New XY(1,0)
+		nose*=20
+		context.Plot(position+nose,200*radius)
 		context.Plot(position,200*radius)
 	End
 	
@@ -70,8 +75,6 @@ Class Ship Extends Mass
 	End
 End
 
-Class Player
-End
 
 
 Alias MassList:Stack<Mass>
@@ -113,12 +116,63 @@ Class Universe
 
 End
 
+Enum Button
+	Left,
+	Right,
+	Up,
+	Down,
+	A,
+	B
+End
+
+Alias KeyButtons:Map<Key,Button>
+
+Class GridPlayer
+	
+	Struct Action
+	End
+	
+	Field buttonActions:=New Map<Key,Action>
+	Field keys:=New KeyButtons
+	Field buttonState:=New Bool[6]
+	
+	Method New()
+		keys[Key.Left]=Button.Left
+	End
+
+	Method KeyDown(event:KeyEvent)
+		Select event.Type
+			Case EventType.KeyDown
+				Local key:=event.Key
+				If keys.Contains(key)
+					Local button:=keys[key]
+					buttonState[button]=True
+				Endif				
+			Case EventType.KeyUp
+				Local key:=event.Key
+				If keys.Contains(key)
+					Local button:=keys[key]
+					buttonState[button]=False
+				Endif				
+		End
+	End
+	
+	Method Axis:Double(index:Int)
+		Return 0
+	End
+
+End
+
 Class GridGame
 	
 	Field world:=New Universe
 	Field ship:Ship
-	Field player:Player
+	Field player0:GridPlayer
 	
+	Method New(player:GridPlayer)
+		player0=player
+	End
+
 	Method SetSim(index:Int)
 		Clear()
 		Select index 
@@ -127,6 +181,7 @@ Class GridGame
 			Case 1
 				SolarSystem()
 			Case 2
+				Title="PlayerShip1"
 				ship=New Ship(.05,New XY(90,400),New XY(0,0))
 				world.AddBody(ship)
 		End
@@ -137,11 +192,13 @@ Class GridGame
 	End
 	
 	Method BinarySystem()
+		Title="BinarySystem"
 		world.AddBody(800,New XY(110,200),New XY(0,1))
 		world.AddBody(800,New XY(410,200),New XY(0,-1))		
 	End
 	
 	Method SolarSystem()
+		Title="SolarSystem"
 		world.AddBody(800,New XY(410,200),New XY(0,0))
 		world.AddBody(1,New XY(110,200),New XY(0,1))
 		world.AddBody(.1,New XY(90,200),New XY(0,1.12))
@@ -165,12 +222,15 @@ End
 
 Alias GridGames:Stack<GridGame>
 
+Global Grey0:=Color.FromARGB($ff444444)
+Global Grey1:=Color.FromARGB($ff222222)
+Global Grey2:=Color.FromARGB($ff666666)
+
 Class GameGrid
 
-	Field bg:=Color.FromARGB($ff111111)
-	Field fg:=Color.FromARGB($ff000022)
+	Field bg:=Grey0
+	Field fg:=Grey1
 	
-'	Field shape:=New Shape
 	Field context:=New SmoothContext
 	
 	Field org:XY
@@ -185,9 +245,16 @@ Class GameGrid
 	
 	Field vectorFont:=New VectorFont
 	
+	Field player0:GridPlayer
+	
 	Method New(view:View)		
 		owner=view
 		vectorFont=LoadFont("asset::vectorfont.json")
+		player0=New GridPlayer()
+	End
+	
+	Method KeyDown(event:KeyEvent)
+		player0.KeyDown(event)
 	End
 	
 	Method ZoomPos(v:Double, pos:XY)
@@ -248,12 +315,9 @@ Class GameGrid
 		
 		context.Origin(org)
 		context.Zoom(zoom)	
-'		context.Plot(New XY(50,50),20)		
-'		context.Line(New XY(150,150),New XY(250,200),10)
-		context.Foreground(Color.Orange)
+		context.Foreground(Grey2)
 		context.Text(New XY(50,180),2,"Orbit Version 0.001")
-' for each layer
-'		context.Draw(shape)
+		context.Text(New XY(50,220),2,Title)
 		For Local game:=Eachin games
 			game.Draw(context)
 		Next
@@ -292,8 +356,6 @@ Function LoadFont:VectorFont(path:String)
 		Next
 		Local data:=shape.ToArray()
 		result[code]=data
-'		Print "code="+code+" data="+data.Length
-'		If drawlist Print drawlist.Length Else Print glyphs[i].ToJson()
 	Next
 	Return result
 End
@@ -305,6 +367,7 @@ Class OrbitWindow Extends Window
 	Field games:GridGames
 	Field scale:Double
 	Field frame:Recti
+	Field player:GridPlayer
 
 	Method New()		
 		Super.New("Orbit",prefs.frame,DefaultWindowFlags)		
@@ -316,9 +379,14 @@ Class OrbitWindow Extends Window
 	
 	Method SetWorld(index:Int)
 		games=New GridGames()
-		Local game:=New GridGame()
+		Local game:=New GridGame(player)
 		game.Begin(grid,index)
 		games.Add(game)		
+	End
+	
+	Method Close()
+		Save()
+		App.Terminate()
 	End
 
 	Method OnKeyEvent( event:KeyEvent ) Override
@@ -339,6 +407,8 @@ Class OrbitWindow Extends Window
 						SetWorld(1)
 					Case Key.Key3
 						SetWorld(2)
+					Default 
+						grid.KeyDown(event)
 				End
 			Endif
 		Endif			
@@ -445,11 +515,7 @@ Class OrbitWindow Extends Window
 
 	Method Open()
 	End
-	
-	Method Close()
-		Save()
-	End
-	
+		
 	Method Quit()
 		Save()
 		App.Terminate()
