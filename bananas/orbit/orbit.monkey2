@@ -431,10 +431,13 @@ Class GridSynth
 
 	Method New()		
 		OpenAudio()
+	End
+	
+	Method Test()
 		synth0.SetTone(4,0)
 		synth0.Note(HighWhite)			
-		synth1.SetTone(3,3)
-		synth1.Note(HighC)
+'		synth1.SetTone(3,3)
+'		synth1.Note(HighC)
 	End
 
 	Field audioSpec:sdl2.SDL_AudioSpec
@@ -503,6 +506,7 @@ Class OrbitWindow Extends Window
 	End
 	
 	Method SetWorld(index:Int)
+		synth.Test()
 		games=New GridGames()
 		Local game:=New GridGame(player)
 		game.Begin(grid,index)
