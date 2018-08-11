@@ -1,6 +1,10 @@
 #Import "<std>"
 #Import "<mojo>"
 
+#Import "audiopipe.monkey2"
+#Import "softsynth.monkey2"
+
+
 Using std..
 Using mojo..
 
@@ -58,6 +62,12 @@ Class SmoothContext
 		Local quad:=New Quad(xy.X-r,xy.y-r,xy.X+r,xy.y+r)
 		target.DrawRect(quad,circle)
 	End
+
+'	Method PowerPlot(xy:XY,r:Radius,power:R)
+'		Local quad:=New Quad(xy.X-r,xy.y-r,xy.X+r,xy.y+r)
+'		target.DrawRect(quad,circle)
+'	End
+
 
 	Method Text(xy:XY,r:Radius,text:String)
 		Local cursor:=xy

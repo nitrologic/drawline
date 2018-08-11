@@ -3,12 +3,15 @@
 ' key1 - binary stars
 ' key2 - solar system
 ' key3 - ship tests
+' key4 - tile tests
 
 #Import "<std>"
 #Import "<mojo>"
 #Import "<mojolabs>"
 
 #Import "<drawline>"
+#Import "<sdl2>"
+#Import "<sdl2-mixer>"
 
 #Import "assets/vectorfont.json"
 
@@ -24,6 +27,9 @@ Global Title:="GameGrid"
 ' v = (4.pi.r.r.r)/3
 ' r = ((3.v)/(4.pi))^0.33
 
+Global Steps:=16
+Global G:=0.05
+
 Class Mass
 	Field grams:Gram
 	Field position:XY
@@ -34,17 +40,17 @@ Class Mass
 		grams=mass
 		position=pos
 		velocity=vel
-		radius=Pow((3*mass)/(4*Pi),1.0/3)
+		radius=0.2+Pow((3*mass)/(4*Pi),1.0/3)
 		Print "radius="+radius
 	End
 
 	Method Move()
-		position+=velocity		
+		position+=velocity/Steps
 	End
 	
 	Function Attract(m0:Mass,m1:Mass)
 		Local distance:=m0.position.Distance(m1.position)
-		Local f:=(m1.position-m0.position)/(distance*distance*distance)
+		Local f:=(m1.position-m0.position)/(distance*distance*distance)		
 		m0.velocity+=f*m1.grams*G
 		m1.velocity-=f*m0.grams*G
 	End
@@ -75,11 +81,7 @@ Class Ship Extends Mass
 	End
 End
 
-
-
 Alias MassList:Stack<Mass>
-
-Const G:Double=1.2
 
 Class Universe
 	Field bodies:=New MassList
@@ -96,21 +98,19 @@ Class Universe
 	End
 
 	Method Update()		
-
 		Local mass:=bodies.ToArray()
-		Local n:=mass.Length
-		Local gravity:=New XY		
-		
-		For Local i:=0 Until n
-			Local m0:=mass[i]
-			For Local j:=i+1 Until n
-				Local m1:=mass[j]
-				Mass.Attract(m0,m1)
+		Local n:=mass.Length		
+		For Local s:=0 Until Steps		
+			For Local i:=0 Until n
+				Local m0:=mass[i]
+				For Local j:=i+1 Until n
+					Local m1:=mass[j]
+					Mass.Attract(m0,m1)
+				Next
 			Next
-		Next
-
-		For Local mass:=Eachin bodies
-			mass.Move()
+			For Local mass:=Eachin bodies
+				mass.Move()
+			Next
 		Next
 	End
 
@@ -199,9 +199,9 @@ Class GridGame
 	
 	Method SolarSystem()
 		Title="SolarSystem"
-		world.AddBody(800,New XY(410,200),New XY(0,0))
+		world.AddBody(800,New XY(610,200),New XY(0,0))
 		world.AddBody(1,New XY(110,200),New XY(0,1))
-		world.AddBody(.1,New XY(90,200),New XY(0,1.12))
+		world.AddBody(.01,New XY(96,200),New XY(0.02,1.2))
 	End		
 	
 	Method Begin(grid:GameGrid,index:Int)
@@ -277,7 +277,9 @@ Class GameGrid
 		context.BeginPaint(canvas,vectorFont)
 		
 		Local w:=canvas.Viewport.Width
-		Local h:=canvas.Viewport.Height		
+		Local h:=canvas.Viewport.Height
+
+		canvas.Translate(w/4,h/4)
 
 		canvas.Clear(bg)
 		canvas.Color=fg
@@ -361,6 +363,127 @@ Function LoadFont:VectorFont(path:String)
 End
 
 
+
+Global FragmentSize:=1024
+Const DefaultVolume:=0.2
+
+Class OrbitSynth Extends MonoSynth
+	Field detune:V=1.0
+	Field detune0:V=1.0
+
+	Field fall:V
+	Field vel:V
+
+	Field fade:V=DefaultVolume
+	Field fade0:V=DefaultVolume
+
+	Field detuneBuffer:=New V[FragmentSize]
+	Field fadeBuffer:=New V[FragmentSize]
+
+	Field overdrive:=New V[FragmentSize]
+	Field gain:=New V[FragmentSize]
+	Field wet:=New V[FragmentSize]
+	Field dry:=New V[FragmentSize]
+	Field falloff:=New V[FragmentSize]
+
+	Method Note(note:Note)
+		fall=-1
+		vel=-0.01
+		Super.NoteOn(note)
+	End
+	
+	Method Write(buffer:Double[],samples:Int)		
+
+		detune+=fall*samples/AudioFrequency
+		fall+=vel*samples/AudioFrequency
+		If detune<=0 Return
+
+		For Local i:=0 Until samples
+			detuneBuffer[i]=detune0+i*(detune-detune0)/samples
+			fadeBuffer[i]=fade0+i*(fade-fade0)/samples
+			overdrive[i]=20
+
+			gain[i]=1.0/20
+			wet[i]=1
+			dry[i]=1
+			falloff[i]=1.5
+		Next			
+		detune0=detune
+		fade0=fade
+		FillAudioBuffer(buffer,samples,detuneBuffer,fadeBuffer)	
+	End
+
+End
+
+Class GridSynth
+
+	Const WriteAhead:=8192
+	Const MiddleC:=New Note(60,40)
+
+	Const HighWhite:=New Note(92,20)
+	Const HighC:=New Note(77,40)
+	
+	Field buffer:=New Double[FragmentSize*2]
+
+	Field synth0:=New OrbitSynth()
+	Field synth1:=New OrbitSynth()
+	Field audioPipe:=AudioPipe.Create()
+
+	Method New()		
+		OpenAudio()
+		synth0.SetTone(4,0)
+		synth0.Note(HighWhite)			
+		synth1.SetTone(3,3)
+		synth1.Note(HighC)
+	End
+
+	Field audioSpec:sdl2.SDL_AudioSpec
+			
+	Method OpenAudio()
+		Local spec:=New sdl2.SDL_AudioSpec
+		spec.freq=AudioFrequency	
+		spec.format = sdl2.AUDIO_S16
+		spec.channels = 2
+		spec.samples = FragmentSize
+		spec.callback = AudioPipe.Callback
+		spec.userdata = audioPipe.Handle()
+		
+'		sdl2.Mix_CloseAudio()		
+		Local error:Int = sdl2.SDL_OpenAudio(Varptr spec,Varptr audioSpec)		
+		If error
+			Print "error="+error+" "+String.FromCString(sdl2.SDL_GetError())
+		Else
+			Print "Audio Open freq="+audioSpec.freq
+			AudioFrequency=audioSpec.freq
+		Endif				
+		sdl2.SDL_PauseAudio(0)
+	End
+
+	Method UpdateAudio()
+		While True
+			Local buffered:=audioPipe.writePointer-audioPipe.readPointer
+			If buffered>=WriteAhead Exit
+			Local samples:=FragmentSize
+			Local buffer:=FillAudioBuffer(samples)
+			Local pointer:=Varptr buffer[0]
+			audioPipe.WriteSamples(pointer,samples*2)
+		Wend
+	End
+	
+	Method FillAudioBuffer:Double[](samples:Int)		
+		For Local i:=0 Until samples
+			buffer[i*2+0]=0
+			buffer[i*2+1]=0
+		Next		
+		synth0.Write(buffer,samples)
+		synth1.Write(buffer,samples)
+		Duration+=samples			
+		Return buffer
+	End
+
+
+End
+
 Class OrbitWindow Extends Window
 
 	Field grid:GameGrid
@@ -368,13 +491,15 @@ Class OrbitWindow Extends Window
 	Field scale:Double
 	Field frame:Recti
 	Field player:GridPlayer
+	Field synth:GridSynth
 
 	Method New()		
 		Super.New("Orbit",prefs.frame,DefaultWindowFlags)		
 		Fullscreen=prefs.fullscreen 
 		SetZoom(prefs.scale)		
 		grid=New GameGrid(Self)
-		SetWorld(2)
+		synth=New GridSynth()
+		SetWorld(1)
 	End
 	
 	Method SetWorld(index:Int)
@@ -451,6 +576,8 @@ Class OrbitWindow Extends Window
 	End
 
 	Method OnRender(canvas:Canvas) Override				
+'		synth.synth1.Detune(0.98)
+		synth.UpdateAudio()
 		For Local game:=Eachin games
 			game.Update()
 		Next
@@ -477,6 +604,7 @@ Class OrbitWindow Extends Window
 		Local obj:=prefs.ToJson()				
 		Local str:=obj.ToJson()
 		SaveString(str,PrefsPath)
+		Print "Saved to "+PrefsPath
 	End
 
 	Method OnWindowEvent( event:WindowEvent ) Override	
@@ -633,7 +761,7 @@ Function Main()
 
 	Local filePrefs:=JsonObject.Load(PrefsPath)
 	If filePrefs 
-'		prefs.FromJson(filePrefs)		
+		prefs.FromJson(filePrefs)		
 		If prefs.Invalid()
 			Print "Invalid Prefs - invoking Factory Reset"
 			OrbitWindow.Reset()
