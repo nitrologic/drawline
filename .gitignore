@@ -1,3 +1,5 @@
 .mx2
 *.buildv*
 *.products
+*.zip
+Orbit0.*

@@ -1,9 +1,17 @@
-' monkey2 grid sim
-
+' monkey2 orbit experiments
+'
+' simulation keys
+'
 ' key1 - binary stars
 ' key2 - solar system
 ' key3 - ship tests
 ' key4 - tile tests
+'
+' projection keys
+'
+' key L - Linear
+' key P - Exponential
+' key H - Hyperbolic
 
 #Import "<std>"
 #Import "<mojo>"
@@ -18,8 +26,12 @@
 Using std..
 Using mojo..
 
-Alias Micros:Long
+Alias I:Int
 
+Alias GridContext:PowerContext
+'Alias GridContext:SmoothContext
+
+Alias Micros:Long
 Alias Gram:Double
 
 Global Title:="GameGrid"
@@ -27,22 +39,27 @@ Global Title:="GameGrid"
 ' v = (4.pi.r.r.r)/3
 ' r = ((3.v)/(4.pi))^0.33
 
-Global Steps:=16
-Global G:=0.05
+Global Steps:=32
+Global G:=0.015
 
 Class Mass
 	Field grams:Gram
 	Field position:XY
 	Field velocity:XY	
-	Field radius:Double
+	Field radius:=1.0
 	
-	Method New(mass:Gram,pos:XY,vel:XY)
-		grams=mass
+	Method New()
+	End
+
+	Method New(weight:Gram,pos:XY,vel:XY)
+		grams=weight
 		position=pos
 		velocity=vel
-		radius=0.2+Pow((3*mass)/(4*Pi),1.0/3)
+		radius=0.2+Pow((3*weight)/(4*Pi),1.0/3)
 		Print "radius="+radius
 	End
+	
+	Const None:=New Mass()
 
 	Method Move()
 		position+=velocity/Steps
@@ -55,8 +72,8 @@ Class Mass
 		m1.velocity-=f*m0.grams*G
 	End
 	
-	Method Draw(context:SmoothContext) Virtual
-		context.Plot(position,20*radius)
+	Method Draw(context:GridContext) Virtual
+		context.Plot(position,1+radius)
 	End
 End
 
@@ -69,7 +86,7 @@ Class Ship Extends Mass
 		Super.New(mass,pos,vel)
 	End
 
-	Method Draw(context:SmoothContext) Override
+	Method Draw(context:GridContext) Override
 		Local nose:=New XY(1,0)
 		nose*=20
 		context.Plot(position+nose,200*radius)
@@ -85,12 +102,16 @@ Alias MassList:Stack<Mass>
 
 Class Universe
 	Field bodies:=New MassList
+	Field colormap:=New Map<Mass,Color>
 	
 	Method New()
 	End
 	
-	Method AddBody(mass:Gram,position:XY,velocity:XY)
-		bodies.Add(New Mass(mass,position,velocity))
+	Method AddBody:Mass(weight:Gram,position:XY,velocity:XY,color:Color=Null)
+		Local mass:=New Mass(weight,position,velocity)
+		bodies.Add(mass)
+		If color colormap[mass]=color
+		Return mass
 	End
 	
 	Method AddBody(body:Mass)
@@ -168,9 +189,21 @@ Class GridGame
 	Field world:=New Universe
 	Field ship:Ship
 	Field player0:GridPlayer
+	Field focus:=Mass.None
 	
 	Method New(player:GridPlayer)
 		player0=player
+	End
+
+	Method Draw(context:GridContext)
+		context.Push(focus.position,focus.radius)	
+		For Local mass:=Eachin world.bodies
+			Local color:=world.colormap[mass]
+			If Not color color=Color.White 
+			context.Foreground(color)
+			mass.Draw(context)		
+		Next		
+		context.Pop()
 	End
 
 	Method SetSim(index:Int)
@@ -199,9 +232,19 @@ Class GridGame
 	
 	Method SolarSystem()
 		Title="SolarSystem"
-		world.AddBody(800,New XY(610,200),New XY(0,0))
-		world.AddBody(1,New XY(110,200),New XY(0,1))
-		world.AddBody(.01,New XY(96,200),New XY(0.02,1.2))
+'		world.AddBody(800,New XY(610,200),New XY(0,0))
+'		world.AddBody(1,New XY(110,200),New XY(0,1))
+'		world.AddBody(.01,New XY(96,200),New XY(0.02,1.2))
+
+		focus=world.AddBody(800,New XY(0,0),New XY(0,0),Color.Yellow)
+
+		world.AddBody(10,New XY(-300,0),New XY(0,1),Color.Aqua)
+
+		world.AddBody(10,New XY(-500,0),New XY(0,1),Color.Red)
+
+		world.AddBody(.0001,New XY(-320,0),New XY(0.02,1.4),Color.Silver)
+
+		world.AddBody(.0001,New XY(-520,0),New XY(0.02,1.4),Color.Silver)
 	End		
 	
 	Method Begin(grid:GameGrid,index:Int)
@@ -212,18 +255,12 @@ Class GridGame
 		world.Update()
 	End
 	
-	Method Draw(context:SmoothContext)
-		For Local mass:=Eachin world.bodies
-			mass.Draw(context)		
-		Next
-
-	End
 End
 
 Alias GridGames:Stack<GridGame>
 
-Global Grey0:=Color.FromARGB($ff444444)
-Global Grey1:=Color.FromARGB($ff222222)
+Global Grey0:=Color.FromARGB($ff222222)
+Global Grey1:=Color.FromARGB($ff444444)
 Global Grey2:=Color.FromARGB($ff666666)
 
 Class GameGrid
@@ -231,7 +268,7 @@ Class GameGrid
 	Field bg:=Grey0
 	Field fg:=Grey1
 	
-	Field context:=New SmoothContext
+	Field context:=New GridContext
 	
 	Field org:XY
 	Field vel:XY
@@ -240,6 +277,9 @@ Class GameGrid
 	Field zoom:=2.5
 	Field zoomSpeed:=0.0
 	Field zoomPos:XY
+
+	Field power:=0.5
+	Field powerSpeed:=0.0
 
 	Field owner:View
 	
@@ -262,6 +302,11 @@ Class GameGrid
 		zoomPos=pos
 	End
 	
+	Method PowerPos(v:Double, pos:XY)
+		powerSpeed+=v
+'		zoomPos=pos
+	End
+
 	Method Update()
 		org+=vel
 		vel*=0.972		
@@ -270,6 +315,18 @@ Class GameGrid
 '		Local z1:=zoomPos/zoom
 '		org-=(z1-z0)
 		zoomSpeed*=0.88		
+		
+		power+=powerSpeed
+		powerSpeed*=0.88
+
+		If power<Epsilon power=Epsilon
+	End
+			
+	Method DrawGrid(radius:I,increment:I,th:R)		
+		For Local i:=-radius To radius Step increment
+			context.Line(New XY(radius,i),New XY(-radius,i),th)
+			context.Line(New XY(i,radius),New XY(i,-radius),th)
+		Next
 	End
 			
 	Method Render(canvas:Canvas,games:GridGames)
@@ -279,47 +336,27 @@ Class GameGrid
 		Local w:=canvas.Viewport.Width
 		Local h:=canvas.Viewport.Height
 
-		canvas.Translate(w/4,h/4)
+		canvas.Translate(w/2,h/2)
 
 		canvas.Clear(bg)
 		canvas.Color=fg
-		
-		Local thick:=Abs(zoom)
-		Local g:=grid*thick
-
-		Local wide:Int=1+w/g
-		Local hi:Int=1+h/g
-				
-		Local oy:=((org.Y Mod g)-g)Mod g
-		Local ox:=((org.X Mod g)-g)Mod g
-		
-		Local iy:Int=math.Floor(-org.y/g)
-		For Local y:=oy To h Step g						
-			Local th:=thick * ((iy&3) ? 1 Else 2)
-			Local rect:=New Rectf(0,y-th,w,y+th)
-'			canvas.DrawRect(rect)
-'			canvas.DrawRect(rect,circle,hrect2)
-			context.HLin(rect)
-			iy+=1
-		Next
-	
-		Local ix:Int=math.Floor(-org.x/g)
-		For Local x:=ox To w Step g
-			Local th:=thick * ((ix&3) ? 1 Else 2)
-			Local rect:=New Rectf(x-th,0,x+th,h)
-'			canvas.DrawRect(rect)
-'			canvas.DrawRect(rect,circle,vrect2)
-			context.VLin(rect)
-			ix+=1
-		Next
-
+						
 		canvas.Color=Color.White
-		
-		context.Origin(org)
+				
+		context.Origin(org,power)
 		context.Zoom(zoom)	
 		context.Foreground(Grey2)
-		context.Text(New XY(50,180),2,"Orbit Version 0.001")
-		context.Text(New XY(50,220),2,Title)
+	
+		context.Text(New XY(50,80),.060,"Orbit Version 0.001")
+		context.Text(New XY(50,120),.052,Title)
+		context.Foreground(Color.SeaGreen)
+		context.Text(New XY(20,-20),.085,"frequency 0.2")
+		
+		context.Foreground(Color.FromARGB($77223366))
+		DrawGrid(512,32,0.2)
+		context.Foreground(Color.FromARGB($ff226633))
+		DrawGrid(8192,512,0.1)
+		
 		For Local game:=Eachin games
 			game.Draw(context)
 		Next
@@ -555,7 +592,11 @@ Class OrbitWindow Extends Window
 		
 		Local xy:=event.Location
 		If event.Type=EventType.MouseWheel
-			grid.ZoomPos(event.Wheel.y/20.0,xy)
+			If event.Modifiers & Modifier.Control
+				grid.PowerPos(event.Wheel.y/120.0,xy)
+			Else
+				grid.ZoomPos(event.Wheel.y/20.0,xy)
+			Endif
 			Return
 		Endif
 

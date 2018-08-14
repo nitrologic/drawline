@@ -11,6 +11,7 @@ Using mojo..
 Alias XY:Vec2<Double>
 Alias Quad:Rectf
 Alias Radius:Double
+Alias Power:Double
 
 Alias VectorFont:Map<Int,Int[]>
 
@@ -21,11 +22,14 @@ Class SmoothContext
 	Field vrect3:=New Recti(256-64,256,256+64,256)
 	Field hrect3:=New Recti(256,256-64,256,256+64)
 	
+	Field stack:=New Stack<AffineMat3f>
 	Field target:Canvas	
 	Field font:VectorFont
 
 	Field tube:Tube
 	Field foreground:UInt
+
+	Field zoom:Float
 	
 	Method BeginPaint(canvas:Canvas,vectorfont:VectorFont)
 		target=canvas
@@ -41,33 +45,45 @@ Class SmoothContext
 		Local rgba:=((c&$ff)Shl 24)|((c&$ff00)Shl 8)|((c Shr 8)&$ff00)|((c Shr 24)&$ff)
 		foreground=rgba
 	End
-	
-	Method VLin(quad:Quad)
-		target.DrawRect(quad,circle,vrect3)
-	End
-
-	Method HLin(quad:Quad)
-		target.DrawRect(quad,circle,hrect3)
-	End
-	
-	Method Origin(xy:XY)
+		
+	Method Origin(xy:XY,power:Power) Virtual 
 		target.Translate(xy.X,xy.Y)
 	End
 	
-	Method Zoom(z:Float)
+	Method Push(xy:XY,power:Power) Virtual 
+		stack.Push(target.Matrix)
+		target.Translate(-xy.X,-xy.Y)
+	End
+
+	Method Pop() Virtual
+		target.Matrix=stack.Pop()
+	End
+	
+	Method Zoom(z:Float) Virtual
+		zoom=z
 		target.Scale(z,z)
 	End
 	
-	Method Plot(xy:XY,r:Radius)
-		Local quad:=New Quad(xy.X-r,xy.y-r,xy.X+r,xy.y+r)
-		target.DrawRect(quad,circle)
-	End
-
-'	Method PowerPlot(xy:XY,r:Radius,power:R)
+	Method Plot(xy:XY,r:Radius) Virtual
+		tube.start(xy,r,foreground)
+		tube.finish(target,circle)
 '		Local quad:=New Quad(xy.X-r,xy.y-r,xy.X+r,xy.y+r)
 '		target.DrawRect(quad,circle)
-'	End
+	End
 
+	Method Line(p0:XY,p1:XY,r0:Radius) Virtual
+		tube.start(p0,r0,foreground)
+		tube.move(p1)
+		tube.finish(target,circle)
+	End
+
+	Method Path(p:XY[],r0:Radius) Virtual
+		tube.start(p[0],r0,foreground)
+		For Local i:=1 Until p.Length
+			tube.move(p[i])
+		Next
+		tube.finish(target,circle)
+	End
 
 	Method Text(xy:XY,r:Radius,text:String)
 		Local cursor:=xy
@@ -87,12 +103,6 @@ Class SmoothContext
 		Next
 	End
 
-	Method Line(p0:XY,p1:XY,r0:Radius)
-		tube.start(p0,r0,foreground)
-		tube.move(p1)
-		tube.finish(target,circle)
-	End
-
 '	Method Draw(shape:Shape)		
 '	End
 	
@@ -100,6 +110,77 @@ Class SmoothContext
 		target=Null
 	End
 End	
+
+Alias R:Double
+
+Const Epsilon:=0.01
+
+Class PowerContext Extends SmoothContext
+	Field origin:=New XY(0)
+	Field power:R=0.5
+	Field xystack:=New Stack<XY>
+	
+	Method Push(xy:XY,r:Radius) Override
+		xystack.Push(origin)
+		origin=xy
+	End
+
+	Method Pop() Override
+		origin=xystack.Pop()
+	End
+
+	Method Origin(xy:XY,power:Power) Override
+		Self.power=power
+		Super.Origin(xy,power)
+	End
+
+	Method Zoom(z:Float) Override
+		Local zz:=Pow(z,1/power)
+		target.Scale(zz,zz)
+	End
+	
+	Method Project:XY(xy:XY)
+		Local oxy:=xy-origin
+		Local d:=oxy.Length
+		Local dd:R
+		If d>Epsilon dd=Pow(d,power)/d
+		Return oxy*dd	'+origin
+	End
+
+	Method Plot(xy:XY,r:Radius) Override
+		Local rr:=Pow(r,power)
+		Super.Plot(Project(xy),rr)
+	End
+
+	Method PowerLine(p0:XY,p1:XY,r:Radius)
+		Local rr:=Pow(r,power)
+		Super.Line(Project(p0),Project(p1),r)
+	End
+
+
+	Method PowerPath(p:XY[],r:Radius)
+		Local rr:=r*power'Pow(r,power)
+		Local n:=p.Length
+		For Local i:=0 Until n
+			p[i]=Project(p[i])
+		Next		
+		Super.Path(p,rr)
+	End
+
+	Global path:=New XY[257]
+
+	Method Line(p0:XY,p1:XY,r:Radius) Override
+		Local n:=256
+		Local d:=(p1-p0)/n
+		For Local i:=0 To n
+			Local p:=p0
+			path[i]=p
+			p0+=d
+		Next
+		PowerPath(path,r)
+	End
+
+End
 
 Function AlphaRing:Image()
 	Local d:=512
@@ -130,7 +211,7 @@ Function AlphaRing:Image()
 End
 
 Class Tube
-	Const MaxCount:=64
+	Const MaxCount:=4096
 	
 	Field verts:=New Float[MaxCount*4]
 	Field uv:=New Float[MaxCount*4]
@@ -163,38 +244,41 @@ Class Tube
 		count=1
 		color=foreground
 	End
+	
+	Method anchor(dir:XY)
+		uv[0]=0.0+gutter
+		uv[1]=0.0+gutter
+		uv[2]=0.0+gutter
+		uv[3]=1.0-gutter
+
+		verts[0]=pos.X+(dir.Y-dir.X)*thick
+		verts[1]=pos.Y-(dir.X+dir.Y)*thick
+		verts[2]=pos.X-(dir.Y+dir.X)*thick
+		verts[3]=pos.Y+(dir.X-dir.Y)*thick	
+
+		colors[0]=color
+		colors[1]=color
+
+		uv[4]=0.5
+		uv[5]=0.0+gutter
+		uv[6]=0.5
+		uv[7]=1.0-gutter
+		
+		verts[4]=pos.X+dir.Y*thick
+		verts[5]=pos.Y-dir.X*thick
+		verts[6]=pos.X-dir.Y*thick
+		verts[7]=pos.Y+dir.X*thick
+
+		colors[2]=color
+		colors[3]=color
+	End
 
 	Method move(xy:XY)
 		
 		Local dir:=(xy-pos).Normalize()
 
 		If count=1
-			uv[0]=0.0+gutter
-			uv[1]=0.0+gutter
-			uv[2]=0.0+gutter
-			uv[3]=1.0-gutter
-
-			verts[0]=pos.X+(dir.Y-dir.X)*thick
-			verts[1]=pos.Y-(dir.X+dir.Y)*thick
-			verts[2]=pos.X-(dir.Y+dir.X)*thick
-			verts[3]=pos.Y+(dir.X-dir.Y)*thick	
-
-			colors[0]=color
-			colors[1]=color
-
-			uv[4]=0.5
-			uv[5]=0.0+gutter
-			uv[6]=0.5
-			uv[7]=1.0-gutter
-			
-			verts[4]=pos.X+dir.Y*thick
-			verts[5]=pos.Y-dir.X*thick
-			verts[6]=pos.X-dir.Y*thick
-			verts[7]=pos.Y+dir.X*thick
-
-			colors[2]=color
-			colors[3]=color
-
+			anchor(dir)
 			count=2
 		Endif
 
@@ -217,8 +301,16 @@ Class Tube
 	End
 	
 	Method finish(canvas:Canvas,circle:Image)
+		
+		Local dir:XY
 
-		Local dir:=(pos-pos1).Normalize()
+		If count=1
+			dir=New XY(0,1)
+			anchor(dir)
+			count=2
+		Else
+			dir=(pos-pos1).Normalize()
+		Endif
 
 		verts[count*4+0]=pos.X+(dir.Y+dir.X)*thick
 		verts[count*4+1]=pos.Y-(dir.X-dir.Y)*thick
