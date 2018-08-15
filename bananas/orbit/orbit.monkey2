@@ -10,8 +10,10 @@
 ' projection keys
 '
 ' key L - Linear
-' key P - Exponential
-' key H - Hyperbolic
+' key P - Powered
+' 
+' operations
+' key e - earth
 
 #Import "<std>"
 #Import "<mojo>"
@@ -39,8 +41,9 @@ Global Title:="GameGrid"
 ' v = (4.pi.r.r.r)/3
 ' r = ((3.v)/(4.pi))^0.33
 
-Global Steps:=32
-Global G:=0.015
+Global G:=.01
+Global Speed:=0.002
+Global Steps:=256
 
 Class Mass
 	Field grams:Gram
@@ -62,7 +65,7 @@ Class Mass
 	Const None:=New Mass()
 
 	Method Move()
-		position+=velocity/Steps
+		position+=velocity*Speed
 	End
 	
 	Function Attract(m0:Mass,m1:Mass)
@@ -194,6 +197,28 @@ Class GridGame
 	Method New(player:GridPlayer)
 		player0=player
 	End
+	
+	Method OnKey(key:Key)
+		Select key
+			Case Key.M
+				SetFocalMass(2)
+			Case Key.E
+				SetFocalMass(1)
+			Case Key.S
+				SetFocalMass(0)
+			Case Key.O
+				focus=Mass.None
+		End
+	End
+
+	Method SetFocalMass(index:Int)
+		If index<world.bodies.Length
+			Local body:=world.bodies[index]
+			focus=body
+		Else
+			focus=Mass.None
+		Endif
+	End
 
 	Method Draw(context:GridContext)
 		context.Push(focus.position,focus.radius)	
@@ -218,6 +243,7 @@ Class GridGame
 				ship=New Ship(.05,New XY(90,400),New XY(0,0))
 				world.AddBody(ship)
 		End
+		SetFocalMass(0)
 	End
 		
 	Method Clear()
@@ -229,22 +255,16 @@ Class GridGame
 		world.AddBody(800,New XY(110,200),New XY(0,1))
 		world.AddBody(800,New XY(410,200),New XY(0,-1))		
 	End
-	
+
 	Method SolarSystem()
 		Title="SolarSystem"
-'		world.AddBody(800,New XY(610,200),New XY(0,0))
-'		world.AddBody(1,New XY(110,200),New XY(0,1))
-'		world.AddBody(.01,New XY(96,200),New XY(0.02,1.2))
-
-		focus=world.AddBody(800,New XY(0,0),New XY(0,0),Color.Yellow)
+		world.AddBody(800,New XY(0,0),New XY(0,0),Color.Yellow)
 
 		world.AddBody(10,New XY(-300,0),New XY(0,1),Color.Aqua)
-
-		world.AddBody(10,New XY(-500,0),New XY(0,1),Color.Red)
-
 		world.AddBody(.0001,New XY(-320,0),New XY(0.02,1.4),Color.Silver)
 
-		world.AddBody(.0001,New XY(-520,0),New XY(0.02,1.4),Color.Silver)
+		world.AddBody(10,New XY(-500,0),New XY(0,1),Color.Red)
+		world.AddBody(.0001,New XY(-520,0),New XY(0.02,1.4),Color.Silver)		
 	End		
 	
 	Method Begin(grid:GameGrid,index:Int)
@@ -286,7 +306,7 @@ Class GameGrid
 	Field vectorFont:=New VectorFont
 	
 	Field player0:GridPlayer
-	
+		
 	Method New(view:View)		
 		owner=view
 		vectorFont=LoadFont("asset::vectorfont.json")
@@ -528,6 +548,7 @@ Class OrbitWindow Extends Window
 
 	Field grid:GameGrid
 	Field games:GridGames
+	Field active:GridGame
 	Field scale:Double
 	Field frame:Recti
 	Field player:GridPlayer
@@ -547,7 +568,8 @@ Class OrbitWindow Extends Window
 		games=New GridGames()
 		Local game:=New GridGame(player)
 		game.Begin(grid,index)
-		games.Add(game)		
+		games.Add(game)
+		active=game
 	End
 	
 	Method Close()
@@ -574,6 +596,7 @@ Class OrbitWindow Extends Window
 					Case Key.Key3
 						SetWorld(2)
 					Default 
+						active.OnKey(event.Key)
 						grid.KeyDown(event)
 				End
 			Endif
